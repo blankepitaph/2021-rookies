@@ -1,0 +1,291 @@
+---
+title: "r/cow's OWL Unofficial All-Rookie voting"
+author: u/blankepitaph
+output: pdf_document
+---
+
+# Data prep
+
+Prep data:
+
+```{r}
+library(tidyverse)
+library(ggimage)
+library(rsvg)
+
+rookies = read_tsv(
+  'rookies_long.tsv', col_types = cols()
+) %>% 
+  mutate(points = case_when(
+    selection == 'first_team' ~ 2,
+    selection == 'second_team' ~ 1)
+  ) 
+```
+
+Dealing with 'multi-role players' - based on playtime, I'm assigning Checkmate
+as MT (most playtime on Orisa/Rein), Skewed as MS (most playtime on Brig, traditionally
+an MS hero), and Aztac as FS
+
+```{r}
+rookies = rookies %>% 
+  mutate(
+    role = ifelse(player == 'Skewed', 'MS', role),
+    role = ifelse(player == 'Checkmate', 'MT', role),
+    role = ifelse(player == 'Aztac', 'FS', role)
+  )
+```
+
+# Tabulating votes
+
+## Positionless voting
+
+```{r}
+# positionless voting
+rookie_votes_total = rookies %>% 
+  select(-timestamp) %>% 
+  
+  # get sum of points
+  group_by(player, team, role) %>% 
+  summarise(total_points = sum(points), .groups = 'drop') %>% 
+  arrange(desc(total_points)) %>% 
+  rownames_to_column() # identify top 12 by eye
+
+rookie_votes_total
+```
+
+The positionless All-Rookie First Team:
+Pelican (DPS), Shy (DPS), Ga9a (MT), Piggy (OT), Kaan (FS), Mmonk (FS)
+
+All-Rookie Second Team:
+Flora (DPS), MuZe (MT), JJANGGU (MT), Vestola (OT), Skewed (MS), Nisha (MS)
+
+## Position-based voting
+
+```{r}
+rookies_position_ranks = rookie_votes_total %>% 
+  select(-rowname) %>% 
+  
+  # get top vote counts for each role
+  group_by(role) %>% 
+  mutate(rank = dense_rank(desc(total_points)))
+
+rookies_position_ranks
+
+# write_tsv(rookies_position_ranks, 'rookies_position_ranks.tsv')
+```
+
+The position-based All-Rookie First Team:
+Pelican (DPS), Shy (DPS), Ga9a (MT), Piggy (OT), Kaan (FS), Nisha (MS)
+
+All-Rookie Second Team:
+Flora (DPS), Aspire (DPS), MuZe (MT), Vestola (OT), Mmonk (FS), Skewed (MS)
+
+# Plots
+
+Team color reference:
+
+```{r}
+team_colors = c(
+  'ATL' = '#910F1B',
+  'BOS' = '#174B97',
+  'CDH' = '#FFA000',
+  'FLA' = '#CF4691',
+  'GZC' = '#67A2B2',
+  'HOU' = '#97D700',
+  'HZS' = '#FB7299',
+  'LAG' = '#3C1053',
+  'LAV' = '#FFD100',
+  'LDN' = '#59CBE8',
+  'NYXL' = '#0F57EA',
+  'PAR' = '#8D042D',
+  'SHD' = '#D22630',
+  'TOR' = '#000000',
+  'VAN' = '#2FB228',
+  'WAS' = '#990034'
+)
+```
+
+Create overall plot:
+
+```{r}
+overall_plot = rookies_position_ranks %>% 
+  mutate(img_link = paste0('team_logos/', team, '.png')) %>% 
+  filter(rank <= 7) %>% 
+  mutate(role = factor(role, levels = c('DPS', 'MT', 'OT', 'FS', 'MS'))) %>% 
+    
+  # plot
+  ggplot() +
+  geom_bar(
+    aes(x = reorder(player, -total_points), y = total_points, fill = team),
+    stat = 'identity', color = 'black') +
+  geom_image(
+    aes(x = player, y = total_points + 30, image = img_link),
+    size = 0.1, by = 'width', asp = 0.9) +
+  facet_wrap(
+    vars(role), scales = 'free_x', ncol = 5, nrow = 1) +
+  coord_cartesian(
+    y = c(0, 520)
+  ) +
+  scale_fill_manual(values = team_colors) +
+  labs(
+    title = "r/cow's overall All-Rookie team voting",
+    subtitle = 'Based on 248 community votes - max 7 players per role shown',
+    x = 'Player',
+    y = 'Total points',
+    caption = 'u/blankepitaph, 2021/08/19'
+  ) +
+  guides(
+    fill = FALSE
+  ) +
+  theme(
+    panel.border = element_rect(colour = 'black', size = 0.5, fill = NA),
+    panel.background = element_blank(),
+    strip.background = element_blank(),
+    panel.grid.major.y = element_line(colour = 'grey', linetype = 'dotted'),
+    strip.text = element_text(family = 'Helvetica', colour = 'black', size = 10),
+    axis.title = element_text(family = 'Helvetica', colour = 'black', size = 10),
+    axis.text = element_text(family = 'Helvetica', colour = 'black', size = 10),
+    axis.text.x = element_text(angle = 45, hjust = 1))
+
+overall_plot
+
+ggsave('plots/overall.png', overall_plot, height = 5, width = 15, dpi = 'retina')
+    
+```
+
+DPS only plot:
+
+```{r}
+dps_plot = rookies_position_ranks %>% 
+  mutate(img_link = paste0('team_logos/', team, '.png')) %>% 
+  filter(role == 'DPS') %>% 
+    
+  # plot
+  ggplot() +
+  geom_bar(
+    aes(x = reorder(player, -total_points), y = total_points, fill = team),
+    stat = 'identity', color = 'black') +
+  geom_image(
+    aes(x = player, y = total_points + 30, image = img_link),
+    size = 0.05, by = 'width', asp = 2) +
+  coord_cartesian(
+    y = c(0, 520)
+  ) +
+  scale_fill_manual(values = team_colors) +
+  labs(
+    title = '2021 Rookie DPS players',
+    x = 'Player',
+    y = 'Total points',
+    caption = 'u/blankepitaph, 2021/08/19'
+  ) +
+  guides(
+    fill = FALSE
+  ) +
+  theme(
+    panel.border = element_rect(colour = 'black', size = 0.5, fill = NA),
+    panel.background = element_blank(),
+    strip.background = element_blank(),
+    panel.grid.major.y = element_line(colour = 'grey', linetype = 'dotted'),
+    strip.text = element_text(family = 'Helvetica', colour = 'black', size = 10),
+    axis.title = element_text(family = 'Helvetica', colour = 'black', size = 10),
+    axis.text = element_text(family = 'Helvetica', colour = 'black', size = 10),
+    axis.text.x = element_text(angle = 45, hjust = 1))
+
+dps_plot
+
+ggsave('plots/dps_all.png', dps_plot, height = 5, width = 8, dpi = 'retina')
+```
+
+Tank only plot:
+
+```{r}
+tank_plot = rookies_position_ranks %>% 
+  mutate(img_link = paste0('team_logos/', team, '.png')) %>% 
+  filter(role %in% c('MT', 'OT')) %>% 
+  mutate(role = factor(role, levels = c('MT', 'OT'))) %>% 
+    
+  # plot
+  ggplot() +
+  geom_bar(
+    aes(x = reorder(player, -total_points), y = total_points, fill = team),
+    stat = 'identity', color = 'black') +
+  geom_image(
+    aes(x = player, y = total_points + 30, image = img_link),
+    size = 0.1, by = 'width', asp = 1.1) +
+  facet_wrap(
+    vars(role), scales = 'free_x', ncol = 5, nrow = 1) +
+  coord_cartesian(
+    y = c(0, 520)
+  ) +
+  scale_fill_manual(values = team_colors) +
+  labs(
+    title = '2021 Rookie Tank players',
+    x = 'Player',
+    y = 'Total points',
+    caption = 'u/blankepitaph, 2021/08/19'
+  ) +
+  guides(
+    fill = FALSE
+  ) +
+  theme(
+    panel.border = element_rect(colour = 'black', size = 0.5, fill = NA),
+    panel.background = element_blank(),
+    strip.background = element_blank(),
+    panel.grid.major.y = element_line(colour = 'grey', linetype = 'dotted'),
+    strip.text = element_text(family = 'Helvetica', colour = 'black', size = 10),
+    axis.title = element_text(family = 'Helvetica', colour = 'black', size = 10),
+    axis.text = element_text(family = 'Helvetica', colour = 'black', size = 10),
+    axis.text.x = element_text(angle = 45, hjust = 1))
+
+tank_plot
+
+ggsave('plots/tank_all.png', tank_plot, height = 5, width = 8, dpi = 'retina')
+```
+
+Support only plot:
+
+```{r}
+support_plot = rookies_position_ranks %>% 
+  mutate(img_link = paste0('team_logos/', team, '.png')) %>% 
+  filter(role %in% c('FS', 'MS')) %>% 
+  mutate(role = factor(role, levels = c('FS', 'MS'))) %>% 
+    
+  # plot
+  ggplot() +
+  geom_bar(
+    aes(x = reorder(player, -total_points), y = total_points, fill = team),
+    stat = 'identity', color = 'black') +
+  geom_image(
+    aes(x = player, y = total_points + 30, image = img_link),
+    size = 0.1, by = 'width', asp = 1.1) +
+  facet_wrap(
+    vars(role), scales = 'free_x', ncol = 5, nrow = 1) +
+  coord_cartesian(
+    y = c(0, 520)
+  ) +
+  scale_fill_manual(values = team_colors) +
+  labs(
+    title = '2021 Rookie Support players',
+    x = 'Player',
+    y = 'Total points',
+    caption = 'u/blankepitaph, 2021/08/19'
+  ) +
+  guides(
+    fill = FALSE
+  ) +
+  theme(
+    panel.border = element_rect(colour = 'black', size = 0.5, fill = NA),
+    panel.background = element_blank(),
+    strip.background = element_blank(),
+    panel.grid.major.y = element_line(colour = 'grey', linetype = 'dotted'),
+    strip.text = element_text(family = 'Helvetica', colour = 'black', size = 10),
+    axis.title = element_text(family = 'Helvetica', colour = 'black', size = 10),
+    axis.text = element_text(family = 'Helvetica', colour = 'black', size = 10),
+    axis.text.x = element_text(angle = 45, hjust = 1))
+
+support_plot
+
+ggsave('plots/support_all.png', support_plot, height = 5, width = 8, dpi = 'retina')
+
+```
+
